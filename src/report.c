@@ -461,6 +461,7 @@ Return Value:
 				HidReport.TouchReport.Contacts[currentFingerIndex].X = SctatchX;
 				HidReport.TouchReport.Contacts[currentFingerIndex].Y = ScratchY;
 				HidReport.TouchReport.Contacts[currentFingerIndex].TipSwitch = FINGER_STATUS;
+				HidReport.TouchReport.Contacts[currentFingerIndex].InRange = 1;
 			}
 
 			TouchesReported++;

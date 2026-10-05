@@ -193,6 +193,7 @@ TchReadReport(
 		INPUT, 0x03, /* Input (Const,Var,Abs,No Wrap,Linear,Preferred State,No Null Position) */ \
 		REPORT_SIZE, 0x08, /* Report Size (8) */ \
 		USAGE, 0x51, /* Usage (Contract Identifier) */ \
+		LOGICAL_MAXIMUM, 0x09, \
 		REPORT_COUNT, 0x01, /* Report Count (1) */ \
 		INPUT, 0x02, /* Input: (Data, Var, Abs) */ \
 		USAGE_PAGE, 0x01, /* Usage Page (Generic Desktop Ctrls) */ \
@@ -364,6 +365,7 @@ TchReadReport(
 		FOCALTECH_FT5X_DIGITIZER_FINGER_CONTACT, /* Finger Contact (10) */ \
 		USAGE_PAGE, 0x0D, /* Usage Page (Digitizer) */ \
 		USAGE, 0x54, /* Usage (Contact Count) */ \
+		LOGICAL_MAXIMUM, 0x0A, \
 		REPORT_SIZE, 0x08, /* Report Size (8) */ \
 		INPUT, 0x02, /* Input: (Data, Var, Abs) */ \
 		REPORT_ID, REPORTID_DEVICE_CAPS, /* Report ID (8) */ \
