@@ -78,9 +78,6 @@
     <ClCompile Include="..\src\ft5x\ftinternal.c">
       <Filter>Source Files\ft5x</Filter>
     </ClCompile>
-    <ClCompile Include="..\src\ft5x\ftfwupdate.c">
-      <Filter>Source Files\ft5x</Filter>
-    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\src\Resource.rc">
@@ -150,11 +147,5 @@
     <ClInclude Include="..\include\_spb.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\Include\ft5x\ftfwupdate.h">
-      <Filter>Header Files\ft5x</Filter>
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <CopyFileToFolders Include="..\firmware\focaltech_ts_fw_huaxing.bin" />
   </ItemGroup>
 </Project>

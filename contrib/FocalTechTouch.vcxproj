@@ -423,7 +423,6 @@
   <ItemGroup>
     <ClCompile Include="..\src\Cross Platform Shim\bitops.c" />
     <ClCompile Include="..\src\Cross Platform Shim\hweight.c" />
-    <ClCompile Include="..\src\ft5x\ftfwupdate.c" />
     <ClCompile Include="..\src\report.c" />
     <ClCompile Include="..\src\touch_power\touch_power.c" />
     <ClCompile Include="..\src\device.c" />
@@ -445,7 +444,6 @@
     <ClInclude Include="..\include\Cross Platform Shim\bitops.h" />
     <ClInclude Include="..\include\Cross Platform Shim\compat.h" />
     <ClInclude Include="..\include\Cross Platform Shim\hweight.h" />
-    <ClInclude Include="..\Include\ft5x\ftfwupdate.h" />
     <ClInclude Include="..\include\report.h" />
     <ClInclude Include="..\include\touch_power\public.h" />
     <ClInclude Include="..\include\touch_power\touch_power.h" />
@@ -462,11 +460,6 @@
     <ClInclude Include="..\include\_spb.h" />
     <ClInclude Include="..\include\trace.h" />
     <ClInclude Include="..\include\ft5x\ftinternal.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <CopyFileToFolders Include="..\firmware\focaltech_ts_fw_huaxing.bin">
-      <FileType>Document</FileType>
-    </CopyFileToFolders>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
