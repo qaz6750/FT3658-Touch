@@ -284,6 +284,38 @@ Exit:
 }
 
 NTSTATUS
+TchResetController(IN WDFDEVICE Device)
+{
+    PDEVICE_EXTENSION devContext = GetDeviceContext(Device);
+    NTSTATUS status;
+    unsigned char value = 0;
+    LARGE_INTEGER interval;
+
+    if (!devContext->HasResetGpio || devContext->ResetGpio == NULL)
+    {
+        return STATUS_DEVICE_CONFIGURATION_ERROR;
+    }
+
+    status = SetGPIO(devContext->ResetGpio, &value);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+    interval.QuadPart = -1 * 10000;
+    KeDelayExecutionThread(KernelMode, FALSE, &interval);
+
+    value = 1;
+    status = SetGPIO(devContext->ResetGpio, &value);
+    if (!NT_SUCCESS(status))
+    {
+        return status;
+    }
+    interval.QuadPart = -200 * 10000;
+    KeDelayExecutionThread(KernelMode, FALSE, &interval);
+    return STATUS_SUCCESS;
+}
+
+NTSTATUS
 OnPrepareHardware(
     IN WDFDEVICE FxDevice,
     IN WDFCMRESLIST FxResourcesRaw,
@@ -316,8 +348,6 @@ OnPrepareHardware(
     PDEVICE_EXTENSION devContext;
     ULONG resourceCount;
     ULONG i;
-    LARGE_INTEGER delay;
-    unsigned char value;
 
     UNREFERENCED_PARAMETER(FxResourcesRaw);
 
@@ -371,37 +401,17 @@ OnPrepareHardware(
         goto exit;
     }
 
-    if (devContext->HasResetGpio)
+    if (!devContext->HasResetGpio)
     {
-        status = OpenIOTarget(devContext, devContext->ResetGpioId, GENERIC_READ | GENERIC_WRITE, &devContext->ResetGpio);
-        if (!NT_SUCCESS(status)) {
-            Trace(TRACE_LEVEL_ERROR, TRACE_DRIVER, "OpenIOTarget failed for Reset GPIO 0x%x", status);
-            goto exit;
-        }
+        status = STATUS_DEVICE_CONFIGURATION_ERROR;
+        goto exit;
+    }
 
-        Trace(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "Starting bring up sequence for the controller");
-
-        Trace(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "Setting reset gpio pin to low");
-
-        value = 0;
-        SetGPIO(devContext->ResetGpio, &value);
-
-        Trace(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "Waiting...");
-
-        delay.QuadPart = -10 * TOUCH_POWER_RAIL_STABLE_TIME;
-        KeDelayExecutionThread(KernelMode, TRUE, &delay);
-
-        Trace(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "Setting reset gpio pin to high");
-
-        value = 1;
-        SetGPIO(devContext->ResetGpio, &value);
-
-        Trace(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "Waiting...");
-
-        delay.QuadPart = -10 * TOUCH_DELAY_TO_COMMUNICATE;
-        KeDelayExecutionThread(KernelMode, TRUE, &delay);
-
-        Trace(TRACE_LEVEL_INFORMATION, TRACE_DRIVER, "Done");
+    status = OpenIOTarget(devContext, devContext->ResetGpioId, GENERIC_READ | GENERIC_WRITE, &devContext->ResetGpio);
+    if (!NT_SUCCESS(status))
+    {
+        Trace(TRACE_LEVEL_ERROR, TRACE_DRIVER, "OpenIOTarget failed for Reset GPIO 0x%x", status);
+        goto exit;
     }
 
     //
@@ -486,22 +496,6 @@ OnPrepareHardware(
             TRACE_LEVEL_ERROR,
             TRACE_INIT,
             "Error configuring continuous timer - 0x%08lX",
-            status);
-
-        goto exit;
-    }
-
-    //
-    // Start the controller
-    //
-    status = TchStartDevice(devContext->TouchContext, &devContext->I2CContext);
-
-    if (!NT_SUCCESS(status))
-    {
-        Trace(
-            TRACE_LEVEL_ERROR,
-            TRACE_INIT,
-            "Error starting touch device - 0x%08lX",
             status);
 
         goto exit;

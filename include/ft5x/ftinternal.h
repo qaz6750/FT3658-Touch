@@ -33,19 +33,19 @@
 #define FTS_CMD_START2  0xAA
 #define FTS_CMD_READ_ID 0x90
 
+#define FTS_REG_CHIP_ID 0xA3
+#define FTS_REG_CHIP_ID2 0x9F
+#define FTS_REG_FW_VERSION 0xA6
+#define FTS_REG_POWER_MODE 0xA5
+#define FTS_REG_GESTURE_ENABLE 0xD0
+#define FTS_REG_DIFFDATA_ENABLE 0x9E
+#define FTS_POWER_MODE_SLEEP 0x03
+#define FTS_CHIP_ID_HIGH 0x56
+#define FTS_CHIP_ID_LOW 0x52
 #define FTS_TOUCH_X_RANGE 8640
 #define FTS_TOUCH_Y_RANGE 19200
 #define FTS_TOUCH_RECORD_LENGTH 6
 #define FTS_TOUCH_BUFFER_LENGTH (MAX_TOUCHES * FTS_TOUCH_RECORD_LENGTH + 3)
-
-#define FTS_REG_FW_VERSION 0xA6
-
-#define FTS_REG_CHIP_ID 0xA3
-#define FTS_REG_CHIP_ID2 0x9F
-#define FTS_REG_GESTURE_ENABLE 0xD0
-#define FTS_REG_DIFFDATA_ENABLE 0x9E
-#define FTS_CHIP_ID_HIGH 0x56
-#define FTS_CHIP_ID_LOW 0x52
 
 // Ignore warning C4152: nonstandard extension, function/data pointer conversion in expression
 #pragma warning (disable : 4152)
@@ -206,6 +206,8 @@ typedef struct _FT5X_CONTROLLER_CONTEXT
 	// Power state
 	//
 	DEVICE_POWER_STATE DevicePowerState;
+
+    BOOLEAN DisplayOff;
 
 	//
 	// Register configuration programmed to chip

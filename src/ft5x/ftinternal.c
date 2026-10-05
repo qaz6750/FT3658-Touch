@@ -21,7 +21,7 @@
 #include <Cross Platform Shim\compat.h>
 #include <report.h>
 #include <ft5x\ftinternal.h>
-#include <ft5x\ftfwupdate.h>
+#include <device.h>
 #include <ftinternal.tmh>
 #include <_spb.h>
 
@@ -260,8 +260,12 @@ Ft5xServiceInterrupts(
 {
       NTSTATUS status = STATUS_SUCCESS;
 
-      TchServiceObjectInterrupts(ControllerContext, SpbContext, ReportContext);
-
+      WdfWaitLockAcquire(ControllerContext->ControllerLock, NULL);
+      if (ControllerContext->DevicePowerState == PowerDeviceD0 && !ControllerContext->DisplayOff)
+      {
+            status = TchServiceObjectInterrupts(ControllerContext, SpbContext, ReportContext);
+      }
+      WdfWaitLockRelease(ControllerContext->ControllerLock);
       return status;
 }
 
@@ -302,11 +306,24 @@ Ft5xChangeSleepState(
     IN UCHAR SleepState
 )
 {
-      UNREFERENCED_PARAMETER(SpbContext);
-      UNREFERENCED_PARAMETER(ControllerContext);
-      UNREFERENCED_PARAMETER(SleepState);
+      UINT8 command[2] = { FTS_REG_POWER_MODE, FTS_POWER_MODE_SLEEP };
+      NTSTATUS status;
 
-      return STATUS_SUCCESS;
+      if (SleepState == FT5X_F01_DEVICE_CONTROL_SLEEP_MODE_SLEEPING)
+      {
+            return FTS_Write(SpbContext, command, sizeof(command));
+      }
+      if (SleepState != FT5X_F01_DEVICE_CONTROL_SLEEP_MODE_OPERATING)
+      {
+            return STATUS_INVALID_PARAMETER;
+      }
+
+      status = TchResetController(ControllerContext->FxDevice);
+      if (!NT_SUCCESS(status))
+      {
+            return status;
+      }
+      return TchStartDevice(ControllerContext, SpbContext);
 }
 
 NTSTATUS

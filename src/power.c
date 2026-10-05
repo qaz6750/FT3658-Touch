@@ -23,7 +23,6 @@
 #include <controller.h>
 #include <spb.h>
 #include <ft5x\ftinternal.h>
-#include <ft5x\ftfwupdate.h>
 #include <internal.h>
 #include <touch_power\touch_power.h>
 #include <power.tmh>
@@ -157,7 +156,9 @@ TchPowerSettingCallback(
         }
 
         DWORD DisplayState = *(DWORD*)Value;
-        DWORD GestureEnabled = 0;
+        DETECTED_OBJECTS released = { 0 };
+
+        WdfWaitLockAcquire(ControllerContext->ControllerLock, NULL);
 
         switch (DisplayState)
         {
@@ -167,51 +168,22 @@ TchPowerSettingCallback(
                 TRACE_POWER,
                 "The Display is Off");
 
-            status = PowerToggle(&devContext->TouchPowerContext, 0);
-
-            if (!NT_SUCCESS(status))
+            if (!ControllerContext->DisplayOff && ControllerContext->DevicePowerState == PowerDeviceD0)
             {
-                Trace(
-                    TRACE_LEVEL_ERROR,
-                    TRACE_POWER,
-                    "Error changing touch power state - 0x%08lX",
-                    status);
-                goto exit;
-            }
-
-            if (NT_SUCCESS(RtlReadRegistryValue(
-                (PCWSTR)L"\\Registry\\Machine\\SOFTWARE\\OEM\\Nokia\\Touch\\WakeupGesture",
-                (PCWSTR)L"Enabled",
-                REG_DWORD,
-                &GestureEnabled,
-                sizeof(DWORD))) && GestureEnabled == 1)
-            {
-                status = Ft5xSetReportingFlagsF12(
+                ReportObjects(&devContext->ReportContext, released);
+                status = Ft5xChangeSleepState(
                     ControllerContext,
                     SpbContext,
-                    FT5X_F12_REPORTING_WAKEUP_GESTURE_MODE,
-                    NULL
-                );
-
-                if (!NT_SUCCESS(status))
+                    FT5X_F01_DEVICE_CONTROL_SLEEP_MODE_SLEEPING);
+                if (NT_SUCCESS(status))
                 {
-                    Trace(
-                        TRACE_LEVEL_ERROR,
-                        TRACE_POWER,
-                        "Error Changing Reporting Mode for F12 - 0x%08lX",
-                        status);
-                    goto exit;
+                    ControllerContext->DisplayOff = TRUE;
+                    status = PowerToggle(&devContext->TouchPowerContext, 0);
                 }
             }
-
-            if (!NT_SUCCESS(status))
+            else
             {
-                Trace(
-                    TRACE_LEVEL_ERROR,
-                    TRACE_POWER,
-                    "Error Changing Reporting Mode for F12 - 0x%08lX",
-                    status);
-                goto exit;
+                ControllerContext->DisplayOff = TRUE;
             }
 
             break;
@@ -221,37 +193,27 @@ TchPowerSettingCallback(
                 TRACE_POWER,
                 "The Display is On");
 
-            status = PowerToggle(&devContext->TouchPowerContext, 1);
-
-            if (!NT_SUCCESS(status))
+            if (ControllerContext->DisplayOff && ControllerContext->DevicePowerState == PowerDeviceD0)
             {
-                Trace(
-                    TRACE_LEVEL_ERROR,
-                    TRACE_POWER,
-                    "Error changing touch power state - 0x%08lX",
-                    status);
-                goto exit;
+                status = PowerToggle(&devContext->TouchPowerContext, 1);
+                if (NT_SUCCESS(status))
+                {
+                    status = Ft5xChangeSleepState(
+                        ControllerContext,
+                        SpbContext,
+                        FT5X_F01_DEVICE_CONTROL_SLEEP_MODE_OPERATING);
+                }
+                if (NT_SUCCESS(status))
+                {
+                    ControllerContext->DisplayOff = FALSE;
+                    devContext->ServiceInterruptsAfterD0Entry = TRUE;
+                }
+            }
+            else
+            {
+                ControllerContext->DisplayOff = FALSE;
             }
 
-            status = Ft5xSetReportingFlagsF12(
-                ControllerContext,
-                SpbContext,
-                FT5X_F12_REPORTING_CONTINUOUS_MODE,
-                NULL
-            );
-
-            if (!NT_SUCCESS(status))
-            {
-                Trace(
-                    TRACE_LEVEL_ERROR,
-                    TRACE_POWER,
-                    "Error Changing Reporting Mode for F12 - 0x%08lX",
-                    status);
-                goto exit;
-            }
-
-            //Load firmware each time after display turned on
-            status = FTLoadFirmwareFile(ControllerContext->FxDevice, SpbContext);
             break;
         case 2:
             Trace(
@@ -267,6 +229,7 @@ TchPowerSettingCallback(
                 "Unknown display state - 0x%02X",
                 DisplayState);
         }
+            WdfWaitLockRelease(ControllerContext->ControllerLock);
     }
 
     exit:
@@ -304,12 +267,12 @@ Return Value:
     //
     // Check if we were already on
     //
+    WdfWaitLockAcquire(controller->ControllerLock, NULL);
+    status = STATUS_SUCCESS;
     if (controller->DevicePowerState == PowerDeviceD0)
     {
         goto exit;
     }
-
-    controller->DevicePowerState = PowerDeviceD0;
 
     //
     // Attempt to put the controller into operating mode 
@@ -326,11 +289,24 @@ Return Value:
             TRACE_POWER,
             "Error waking touch controller - 0x%08lX",
             status);
+        goto exit;
     }
+
+    if (controller->DisplayOff)
+    {
+        status = Ft5xChangeSleepState(
+            controller, SpbContext, FT5X_F01_DEVICE_CONTROL_SLEEP_MODE_SLEEPING);
+        if (!NT_SUCCESS(status))
+        {
+            goto exit;
+        }
+    }
+    controller->DevicePowerState = PowerDeviceD0;
 
 exit:
 
-    return STATUS_SUCCESS;
+    WdfWaitLockRelease(controller->ControllerLock);
+    return status;
 }
 
 NTSTATUS
@@ -372,10 +348,14 @@ Return Value:
     //
     // Put the chip in sleep mode
     //
-    status = Ft5xChangeSleepState(
-        ControllerContext,
-        SpbContext,
-        FT5X_F01_DEVICE_CONTROL_SLEEP_MODE_SLEEPING);
+    status = STATUS_SUCCESS;
+    if (!controller->DisplayOff)
+    {
+        status = Ft5xChangeSleepState(
+            ControllerContext,
+            SpbContext,
+            FT5X_F01_DEVICE_CONTROL_SLEEP_MODE_SLEEPING);
+    }
 
     if (!NT_SUCCESS(status))
     {
@@ -401,5 +381,5 @@ Return Value:
 
     WdfWaitLockRelease(controller->ControllerLock);
 
-    return STATUS_SUCCESS;
+    return status;
 }
