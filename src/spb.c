@@ -27,6 +27,17 @@
 #include <reshub.h>
 #include <spb.tmh>
 
+#define FTS_SPI_RETRY_COUNT 3
+#define FTS_SPI_CS_HIGH_DELAY_US 150
+
+static VOID FtsDelayAfterTransfer(VOID)
+{
+    LARGE_INTEGER interval;
+
+    interval.QuadPart = -(LONGLONG)FTS_SPI_CS_HIGH_DELAY_US * 10;
+    KeDelayExecutionThread(KernelMode, FALSE, &interval);
+}
+
 static void crckermit(UINT8* data, UINT32 len, UINT16* crc_out)
 {
     UINT32 i = 0;
@@ -61,7 +72,7 @@ static int rdata_check(UINT8* rdata, UINT32 rlen)
 }
 
 NTSTATUS FTS_Read(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, OUT UINT8* data, IN UINT32 datalen) {
-    NTSTATUS status;
+    NTSTATUS status = STATUS_IO_DEVICE_ERROR;
     WDFMEMORY memoryRead = NULL, memoryWrite = NULL;
     PUCHAR bufferRead, bufferWrite;
     WDF_MEMORY_DESCRIPTOR memoryDescriptor;
@@ -69,6 +80,12 @@ NTSTATUS FTS_Read(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, OUT UINT8* data, IN
     UINT32 txlen_need = datalen + 9;
     UINT8 ctrl = (0x80 | 0x20);
     UINT32 dp = 0;
+    ULONG_PTR bytesTransferred = 0;
+
+    if (cmd == NULL || data == NULL || datalen == 0 || datalen > MAXUSHORT)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
 
     WdfWaitLockAcquire(SpbContext->SpbLock, NULL);
     if (txlen_need > DEFAULT_SPB_BUFFER_SIZE)
@@ -106,6 +123,7 @@ NTSTATUS FTS_Read(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, OUT UINT8* data, IN
         bufferRead = (PUCHAR)WdfMemoryGetBuffer(SpbContext->ReadMemory, NULL);
     }
 
+    RtlZeroMemory(bufferWrite, txlen_need);
     bufferWrite[txlen++] = cmd[0];
     bufferWrite[txlen++] = ctrl;
     bufferWrite[txlen++] = (datalen >> 8) & 0xFF;
@@ -141,7 +159,9 @@ NTSTATUS FTS_Read(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, OUT UINT8* data, IN
         sizeof(seq)
     );
 
-    for (int i = 0; i < 5; i++) {
+    for (UINT32 attempt = 0; attempt < FTS_SPI_RETRY_COUNT; attempt++) {
+        RtlFillMemory(bufferRead, txlen_need, 0xFF);
+        bytesTransferred = 0;
         status = WdfIoTargetSendIoctlSynchronously(
             SpbContext->SpbIoTarget,
             NULL,
@@ -149,28 +169,46 @@ NTSTATUS FTS_Read(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, OUT UINT8* data, IN
             &memoryDescriptor,
             NULL,
             NULL,
-            NULL
+            &bytesTransferred
         );
+        FtsDelayAfterTransfer();
 
         if (!NT_SUCCESS(status)) {
-            Trace(TRACE_LEVEL_ERROR, TRACE_SPB, "Failed to send ioctl - 0x%08lX", status);
-            goto exit;
+            Trace(TRACE_LEVEL_ERROR, TRACE_SPB,
+                "SPI read addr: 0x%02X, attempt: %lu, transfer bytes: %Iu, status: 0x%08lX",
+                cmd[0], attempt, bytesTransferred, status);
+            continue;
         }
 
         if ((bufferRead[3] & 0xA0) == 0) {
-            RtlCopyMemory(data, &bufferRead[dp], datalen);
             int ret = rdata_check(&bufferRead[dp], txlen - dp);
             if (ret < 0) {
-                Trace(TRACE_LEVEL_ERROR, TRACE_SPB, "Error during data read addr: 0x%X, retry: %d", cmd[0], i);
+                UINT16 crcCalculated = 0;
+                UINT16 crcReceived = (UINT16)((bufferRead[txlen - 1] << 8) | bufferRead[txlen - 2]);
+                crckermit(&bufferRead[dp], datalen, &crcCalculated);
+                Trace(TRACE_LEVEL_ERROR, TRACE_SPB,
+                    "SPI CRC addr: 0x%02X, attempt: %lu, frame bytes: %lu, transfer bytes: %Iu, calculated: 0x%04X, received: 0x%04X",
+                    cmd[0], attempt, txlen, bytesTransferred, crcCalculated, crcReceived);
+                Trace(TRACE_LEVEL_ERROR, TRACE_SPB,
+                    "SPI RX[0..9]: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                    bufferRead[0], bufferRead[1], bufferRead[2], bufferRead[3], bufferRead[4],
+                    bufferRead[5], bufferRead[6], bufferRead[7], bufferRead[8], bufferRead[9]);
                 status = STATUS_DATA_ERROR;
                 continue;
             }
-            Trace(TRACE_LEVEL_INFORMATION, TRACE_SPB, "CRC check OK");
+            RtlCopyMemory(data, &bufferRead[dp], datalen);
             status = STATUS_SUCCESS;
             break;
         }
         else {
-            Trace(TRACE_LEVEL_ERROR, TRACE_SPB, "Error during data getting addr: 0x%X, status: 0x%X", cmd[0], bufferRead[3]);
+            Trace(TRACE_LEVEL_ERROR, TRACE_SPB,
+                "SPI response addr: 0x%02X, attempt: %lu, frame bytes: %lu, transfer bytes: %Iu, response: 0x%02X",
+                cmd[0], attempt, txlen, bytesTransferred, bufferRead[3]);
+            Trace(TRACE_LEVEL_ERROR, TRACE_SPB,
+                "SPI RX[0..9]: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                bufferRead[0], bufferRead[1], bufferRead[2], bufferRead[3], bufferRead[4],
+                bufferRead[5], bufferRead[6], bufferRead[7], bufferRead[8], bufferRead[9]);
+            status = STATUS_IO_DEVICE_ERROR;
         }
     }
 exit:
@@ -188,13 +226,19 @@ exit:
 }
 
 NTSTATUS FTS_Write(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, IN UINT32 writelen) {
-    NTSTATUS status;
+    NTSTATUS status = STATUS_IO_DEVICE_ERROR;
     WDFMEMORY memoryRead = NULL, memoryWrite = NULL;
     PUCHAR bufferRead, bufferWrite;
     WDF_MEMORY_DESCRIPTOR memoryDescriptor;
     UINT32 txlen = 0;
     UINT32 txlen_need = writelen + 9;
     UINT32 datalen = writelen - 1;
+    ULONG_PTR bytesTransferred = 0;
+
+    if (cmd == NULL || writelen == 0 || writelen > (UINT32)MAXUSHORT + 1)
+    {
+        return STATUS_INVALID_PARAMETER;
+    }
 
     WdfWaitLockAcquire(SpbContext->SpbLock, NULL);
     if (txlen_need > DEFAULT_SPB_BUFFER_SIZE)
@@ -233,6 +277,7 @@ NTSTATUS FTS_Write(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, IN UINT32 writelen
         bufferRead = (PUCHAR)WdfMemoryGetBuffer(SpbContext->ReadMemory, NULL);
     }
 
+    RtlZeroMemory(bufferWrite, txlen_need);
     bufferWrite[txlen++] = cmd[0];
     bufferWrite[txlen++] = 0x00;
     bufferWrite[txlen++] = (datalen >> 8) & 0xFF;
@@ -268,7 +313,9 @@ NTSTATUS FTS_Write(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, IN UINT32 writelen
         sizeof(seq)
     );
 
-    for (int i = 0; i < 5; i++) {
+    for (UINT32 attempt = 0; attempt < FTS_SPI_RETRY_COUNT; attempt++) {
+        RtlFillMemory(bufferRead, txlen_need, 0xFF);
+        bytesTransferred = 0;
         status = WdfIoTargetSendIoctlSynchronously(
             SpbContext->SpbIoTarget,
             NULL,
@@ -276,16 +323,23 @@ NTSTATUS FTS_Write(IN SPB_CONTEXT* SpbContext, IN UINT8* cmd, IN UINT32 writelen
             &memoryDescriptor,
             NULL,
             NULL,
-            NULL
+            &bytesTransferred
         );
+        FtsDelayAfterTransfer();
         if (!NT_SUCCESS(status)) {
-            Trace(TRACE_LEVEL_ERROR, TRACE_SPB, "Failed to send ioctl - 0x%08lX", status);
+            Trace(TRACE_LEVEL_ERROR, TRACE_SPB,
+                "SPI write addr: 0x%02X, attempt: %lu, transfer bytes: %Iu, status: 0x%08lX",
+                cmd[0], attempt, bytesTransferred, status);
+            continue;
         }
         if ((bufferRead[3] & 0xA0) == 0) {
-            Trace(TRACE_LEVEL_INFORMATION, TRACE_SPB, "Write OK");
+            status = STATUS_SUCCESS;
             break;
         }
-        Trace(TRACE_LEVEL_ERROR, TRACE_SPB, "data write status 0x%X, retry: %d", bufferRead[3], i);
+        status = STATUS_IO_DEVICE_ERROR;
+        Trace(TRACE_LEVEL_ERROR, TRACE_SPB,
+            "SPI write response addr: 0x%02X, attempt: %lu, frame bytes: %lu, transfer bytes: %Iu, RX: %02X %02X %02X %02X",
+            cmd[0], attempt, txlen, bytesTransferred, bufferRead[0], bufferRead[1], bufferRead[2], bufferRead[3]);
     }
 
 exit:
