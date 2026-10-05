@@ -133,33 +133,66 @@ Return Value:
 
 --*/
 {
-    NTSTATUS status = STATUS_SUCCESS;
-    FT5X_CONTROLLER_CONTEXT* controller;
-    controller = (FT5X_CONTROLLER_CONTEXT*)ControllerContext;
+      NTSTATUS status;
+      UINT8 point[FTS_TOUCH_BUFFER_LENGTH] = { 0 };
+      UINT8 pointCount;
+      UINT8 activeCount = 0;
+      UINT32 seenIds = 0;
 
-    UINT32 base = 0;
-
-    UINT8 input_id = 0;
-    UINT8 point[91] = { 0x0 };
+      UNREFERENCED_PARAMETER(ControllerContext);
+      RtlZeroMemory(Data, sizeof(*Data));
     point[0] = 0x1;
 
-    status = FTS_Read(SpbContext, point, point + 1, 90);
+      status = FTS_Read(SpbContext, point, point + 1, sizeof(point) - 1);
     if (!NT_SUCCESS(status)) {
         Trace(TRACE_LEVEL_ERROR, TRACE_INTERRUPT, "failed to read finger status data %!STATUS!", status);
         goto exit;
     }
 
-    for (UINT8 i = 0; i < 10; i++) {
-        base = 6 * i;
-        input_id = point[5 + base] >> 4;
-        if (input_id >= 10)
-            continue;
+      pointCount = point[2] & 0x0F;
+      if (pointCount > MAX_TOUCHES)
+      {
+            return STATUS_DATA_ERROR;
+      }
 
-        if ((point[3 + base] >> 6) == 0x0 || (point[3 + base] >> 6) == 0x2) {
-            Data->States[input_id] = OBJECT_STATE_FINGER_PRESENT_WITH_ACCURATE_POS;
-            Data->Positions[input_id].X = ((point[3 + base] & 0x0F) << 8) + (point[4 + base] & 0xFF);
-            Data->Positions[input_id].Y = ((point[5 + base] & 0x0F) << 8) + (point[6 + base] & 0xFF);
-       }
+      for (UINT32 slot = 0; slot < MAX_TOUCHES; slot++)
+      {
+            UINT32 base = FTS_TOUCH_RECORD_LENGTH * slot;
+            UINT8 inputId = point[5 + base] >> 4;
+            UINT8 event = point[3 + base] >> 6;
+
+            if (inputId >= MAX_TOUCHES)
+            {
+                  break;
+            }
+            if ((seenIds & (1UL << inputId)) != 0 || event == FOCAL_TECH_EVENT_NONE)
+            {
+                  return STATUS_DATA_ERROR;
+            }
+            seenIds |= 1UL << inputId;
+
+            if (event == FOCAL_TECH_EVENT_PRESS_DOWN || event == FOCAL_TECH_EVENT_CONTACT)
+            {
+                  int positionX = ((point[3 + base] & 0x0F) << 11) |
+                        (point[4 + base] << 3) | ((point[7 + base] & 0xE0) >> 5);
+                  int positionY = ((point[5 + base] & 0x0F) << 11) |
+                        (point[6 + base] << 3) | ((point[7 + base] & 0x1C) >> 2);
+
+                  if (pointCount == 0 || positionX >= FTS_TOUCH_X_RANGE || positionY >= FTS_TOUCH_Y_RANGE)
+                  {
+                        return STATUS_DATA_ERROR;
+                  }
+
+                  Data->States[inputId] = OBJECT_STATE_FINGER_PRESENT_WITH_ACCURATE_POS;
+                  Data->Positions[inputId].X = positionX;
+                  Data->Positions[inputId].Y = positionY;
+                  activeCount++;
+            }
+      }
+
+      if (activeCount != pointCount)
+      {
+            return STATUS_DATA_ERROR;
     }
 
 exit:
