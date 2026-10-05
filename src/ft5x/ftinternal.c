@@ -57,38 +57,54 @@ Ft5xConfigureFunctions(
     IN SPB_CONTEXT* SpbContext
 )
 {
-    NTSTATUS status;
-    FT5X_CONTROLLER_CONTEXT* controller;
-    controller = (FT5X_CONTROLLER_CONTEXT*)ControllerContext;
+      NTSTATUS status = STATUS_DEVICE_NOT_READY;
+      UINT8 chipId[2] = { 0 };
+      UINT8 command;
+      UINT8 settings[2];
+      LARGE_INTEGER interval;
 
-    UINT8 IdCmd[2] = { FTS_CMD_START1, FTS_CMD_START2 };
-    UINT8 ChipId[2] = { 0 };
-    status = FTS_Write(SpbContext, IdCmd, 2);
-    if (!NT_SUCCESS(status)) {
-        Trace(
-            TRACE_LEVEL_ERROR,
-            TRACE_INTERRUPT,
-            "Failed to start - 0x%08lX",
-            status);
-        goto exit;
-    }
+      ControllerContext->MaxFingers = MAX_TOUCHES;
+      interval.QuadPart = -100 * 10000;
 
-    IdCmd[0] = FTS_CMD_READ_ID;
-    IdCmd[1] = 0x0;
+      for (UINT32 attempt = 0; attempt < 10; attempt++)
+      {
+            command = FTS_REG_CHIP_ID;
+            status = FTS_Read(SpbContext, &command, &chipId[0], 1);
+            if (NT_SUCCESS(status))
+            {
+                  command = FTS_REG_CHIP_ID2;
+                  status = FTS_Read(SpbContext, &command, &chipId[1], 1);
+            }
 
-    status = FTS_Read(SpbContext, IdCmd, ChipId, 2);
-    if (!NT_SUCCESS(status)) {
-        Trace(
-            TRACE_LEVEL_ERROR,
-            TRACE_INTERRUPT,
-            "Failed to read ChipID - 0x%08lX",
-            status);
-        goto exit;
-    }
+            if (NT_SUCCESS(status))
+            {
+                  if (chipId[0] == FTS_CHIP_ID_HIGH && chipId[1] == FTS_CHIP_ID_LOW)
+                  {
+                        break;
+                  }
+                  status = STATUS_DEVICE_NOT_READY;
+            }
+            KeDelayExecutionThread(KernelMode, FALSE, &interval);
+      }
 
-    Trace(TRACE_LEVEL_INFORMATION, TRACE_INTERRUPT, "Chip ID: 0x%02x%02x", ChipId[0], ChipId[1]);
-exit:
-    return STATUS_SUCCESS;
+      if (!NT_SUCCESS(status))
+      {
+            Trace(TRACE_LEVEL_ERROR, TRACE_INTERRUPT,
+                  "FT3658 application not ready, ID: 0x%02x%02x, status: 0x%08lX",
+                  chipId[0], chipId[1], status);
+            return status;
+      }
+
+      settings[0] = FTS_REG_GESTURE_ENABLE;
+      settings[1] = 0;
+      status = FTS_Write(SpbContext, settings, sizeof(settings));
+      if (!NT_SUCCESS(status))
+      {
+            return status;
+      }
+
+      settings[0] = FTS_REG_DIFFDATA_ENABLE;
+      return FTS_Write(SpbContext, settings, sizeof(settings));
 }
 
 NTSTATUS

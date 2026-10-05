@@ -33,6 +33,13 @@
 #define FTS_CMD_START2  0xAA
 #define FTS_CMD_READ_ID 0x90
 
+#define FTS_REG_CHIP_ID 0xA3
+#define FTS_REG_CHIP_ID2 0x9F
+#define FTS_REG_GESTURE_ENABLE 0xD0
+#define FTS_REG_DIFFDATA_ENABLE 0x9E
+#define FTS_CHIP_ID_HIGH 0x56
+#define FTS_CHIP_ID_LOW 0x52
+
 // Ignore warning C4152: nonstandard extension, function/data pointer conversion in expression
 #pragma warning (disable : 4152)
 
