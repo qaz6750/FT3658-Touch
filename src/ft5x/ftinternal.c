@@ -282,10 +282,16 @@ Ft5xGetFirmwareVersion(
     IN SPB_CONTEXT* SpbContext
 )
 {
-      UNREFERENCED_PARAMETER(SpbContext);
-      UNREFERENCED_PARAMETER(ControllerContext);
+      UINT8 command = FTS_REG_FW_VERSION;
+      NTSTATUS status = FTS_Read(SpbContext, &command, &ControllerContext->FirmwareVersion, 1);
 
-      return STATUS_SUCCESS;
+      if (NT_SUCCESS(status))
+      {
+            Trace(TRACE_LEVEL_INFORMATION, TRACE_INTERRUPT,
+                  "FT3658 application ID: 0x5652, firmware version: 0x%02x",
+                  ControllerContext->FirmwareVersion);
+      }
+      return status;
 }
 
 NTSTATUS

@@ -33,6 +33,8 @@
 #define FTS_CMD_START2  0xAA
 #define FTS_CMD_READ_ID 0x90
 
+#define FTS_REG_FW_VERSION 0xA6
+
 #define FTS_REG_CHIP_ID 0xA3
 #define FTS_REG_CHIP_ID2 0x9F
 #define FTS_REG_GESTURE_ENABLE 0xD0
@@ -209,6 +211,8 @@ typedef struct _FT5X_CONTROLLER_CONTEXT
 	UCHAR Data1Offset;
 
 	BYTE MaxFingers;
+
+	UCHAR FirmwareVersion;
 
     int HidQueueCount;
 } FT5X_CONTROLLER_CONTEXT;
