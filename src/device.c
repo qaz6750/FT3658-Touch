@@ -114,6 +114,30 @@ exit:
     return TRUE;
 }
 
+VOID
+OnInterruptServiceWorkItem(
+    IN WDFWORKITEM WorkItem
+)
+{
+    PDEVICE_EXTENSION devContext;
+    NTSTATUS status;
+
+    devContext = GetDeviceContext(WdfWorkItemGetParentObject(WorkItem));
+    status = Ft5xServiceInterrupts(
+        devContext->TouchContext,
+        &devContext->I2CContext,
+        &devContext->ReportContext);
+
+    if (!NT_SUCCESS(status))
+    {
+        Trace(
+            TRACE_LEVEL_ERROR,
+            TRACE_REPORTING,
+            "Error servicing deferred interrupts - 0x%08lX",
+            status);
+    }
+}
+
 NTSTATUS
 OnD0Entry(
     IN WDFDEVICE Device,
@@ -541,6 +565,15 @@ OnPrepareHardware(
 
 exit:
 
+    if (NT_SUCCESS(status))
+    {
+        KIRQL previousIrql;
+
+        KeAcquireSpinLock(&devContext->InterruptServiceLock, &previousIrql);
+        devContext->InterruptServiceStopping = FALSE;
+        KeReleaseSpinLock(&devContext->InterruptServiceLock, previousIrql);
+    }
+
     return status;
 }
 
@@ -571,10 +604,15 @@ OnReleaseHardware(
 {
     NTSTATUS status;
     PDEVICE_EXTENSION devContext;
+    KIRQL previousIrql;
 
     UNREFERENCED_PARAMETER(FxResourcesTranslated);
 
     devContext = GetDeviceContext(FxDevice);
+
+    KeAcquireSpinLock(&devContext->InterruptServiceLock, &previousIrql);
+    devContext->InterruptServiceStopping = TRUE;
+    KeReleaseSpinLock(&devContext->InterruptServiceLock, previousIrql);
 
     status = PoUnregisterPowerSettingCallback(
         devContext->PoFxPowerSettingCallbackHandle1
@@ -601,6 +639,8 @@ OnReleaseHardware(
             "Error unregistering power setting callback - 0x%08lX",
             status);
     }
+
+    WdfWorkItemFlush(devContext->InterruptServiceWorkItem);
 
     status = TchStopDevice(devContext->TouchContext, &devContext->I2CContext);
 

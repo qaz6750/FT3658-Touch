@@ -132,6 +132,7 @@ Return Value:
     WDF_INTERRUPT_CONFIG interruptConfig;
     WDF_PNPPOWER_EVENT_CALLBACKS pnpPowerCallbacks;
     WDF_IO_QUEUE_CONFIG queueConfig;
+    WDF_WORKITEM_CONFIG workItemConfig;
     NTSTATUS status;
 
     UNREFERENCED_PARAMETER(Driver);
@@ -181,6 +182,28 @@ Return Value:
     devContext = GetDeviceContext(fxDevice);
     devContext->FxDevice = fxDevice;
     devContext->InputMode = MODE_MULTI_TOUCH;
+
+    KeInitializeSpinLock(&devContext->InterruptServiceLock);
+    devContext->InterruptServiceStopping = TRUE;
+    WDF_WORKITEM_CONFIG_INIT(&workItemConfig, OnInterruptServiceWorkItem);
+    workItemConfig.AutomaticSerialization = FALSE;
+    WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
+    attributes.ParentObject = fxDevice;
+
+    status = WdfWorkItemCreate(
+        &workItemConfig,
+        &attributes,
+        &devContext->InterruptServiceWorkItem);
+
+    if (!NT_SUCCESS(status))
+    {
+        Trace(
+            TRACE_LEVEL_ERROR,
+            TRACE_INIT,
+            "Error creating interrupt service work item - 0x%08lX",
+            status);
+        goto exit;
+    }
 
     //
     // Create a parallel dispatch queue to handle requests from HID Class

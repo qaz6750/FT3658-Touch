@@ -66,6 +66,9 @@ typedef struct _DEVICE_EXTENSION
     // Interrupt servicing
     //
     WDFINTERRUPT InterruptObject;
+    WDFWORKITEM InterruptServiceWorkItem;
+    KSPIN_LOCK InterruptServiceLock;
+    BOOLEAN InterruptServiceStopping;
     BOOLEAN ServiceInterruptsAfterD0Entry;
     
     //

@@ -259,6 +259,7 @@ Return Value:
 {
 	PDEVICE_EXTENSION devContext;
 	NTSTATUS status;
+	KIRQL previousIrql;
 
 	devContext = GetDeviceContext(Device);
 
@@ -286,15 +287,14 @@ Return Value:
 	// Service any interrupt that may have asserted while the framework had
 	// interrupts disabled, or occurred before a read request was queued.
 	//
-	if (devContext->ServiceInterruptsAfterD0Entry == TRUE)
+	KeAcquireSpinLock(&devContext->InterruptServiceLock, &previousIrql);
+	if (!devContext->InterruptServiceStopping &&
+		devContext->ServiceInterruptsAfterD0Entry == TRUE)
 	{
-		Ft5xServiceInterrupts(
-			devContext->TouchContext,
-			&devContext->I2CContext,
-			&devContext->ReportContext);
-
 		devContext->ServiceInterruptsAfterD0Entry = FALSE;
+		WdfWorkItemEnqueue(devContext->InterruptServiceWorkItem);
 	}
+	KeReleaseSpinLock(&devContext->InterruptServiceLock, previousIrql);
 
 exit:
 
