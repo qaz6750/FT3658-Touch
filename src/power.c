@@ -82,7 +82,8 @@ TchPowerSettingCallback(
         switch (PowerState)
         {
         // On Battery
-        case PoAc:
+        case PoDc:
+        case PoHot:
             Trace(
                 TRACE_LEVEL_INFORMATION,
                 TRACE_POWER,
@@ -105,8 +106,7 @@ TchPowerSettingCallback(
             }
             break;
         // Plugged In
-        case PoDc:
-        case PoHot:
+        case PoAc:
             Trace(
                 TRACE_LEVEL_INFORMATION,
                 TRACE_POWER,

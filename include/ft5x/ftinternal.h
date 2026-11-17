@@ -39,6 +39,7 @@
 #define FTS_REG_POWER_MODE 0xA5
 #define FTS_REG_GESTURE_ENABLE 0xD0
 #define FTS_REG_DIFFDATA_ENABLE 0x9E
+#define FTS_REG_CHARGER_MODE_ENABLE 0x8B
 #define FTS_POWER_MODE_SLEEP 0x03
 #define FTS_CHIP_ID_HIGH 0x56
 #define FTS_CHIP_ID_LOW 0x52
@@ -208,6 +209,7 @@ typedef struct _FT5X_CONTROLLER_CONTEXT
 	DEVICE_POWER_STATE DevicePowerState;
 
     BOOLEAN DisplayOff;
+    BOOLEAN ChargerConnected;
 
 	//
 	// Register configuration programmed to chip

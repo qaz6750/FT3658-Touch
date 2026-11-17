@@ -104,6 +104,14 @@ Ft5xConfigureFunctions(
       }
 
       settings[0] = FTS_REG_DIFFDATA_ENABLE;
+      status = FTS_Write(SpbContext, settings, sizeof(settings));
+      if (!NT_SUCCESS(status))
+      {
+            return status;
+      }
+
+      settings[0] = FTS_REG_CHARGER_MODE_ENABLE;
+      settings[1] = ControllerContext->ChargerConnected;
       return FTS_Write(SpbContext, settings, sizeof(settings));
 }
 
@@ -292,11 +300,18 @@ Ft5xChangeChargerConnectedState(
     IN UCHAR ChargerConnectedState
 )
 {
-      UNREFERENCED_PARAMETER(SpbContext);
-      UNREFERENCED_PARAMETER(ControllerContext);
-      UNREFERENCED_PARAMETER(ChargerConnectedState);
+      NTSTATUS status = STATUS_SUCCESS;
+      UINT8 command[2] = { FTS_REG_CHARGER_MODE_ENABLE, ChargerConnectedState != 0 };
 
-      return STATUS_SUCCESS;
+      WdfWaitLockAcquire(ControllerContext->ControllerLock, NULL);
+      ControllerContext->ChargerConnected = command[1];
+      if (ControllerContext->DevicePowerState == PowerDeviceD0 && !ControllerContext->DisplayOff)
+      {
+            status = FTS_Write(SpbContext, command, sizeof(command));
+      }
+      WdfWaitLockRelease(ControllerContext->ControllerLock);
+
+      return status;
 }
 
 NTSTATUS
